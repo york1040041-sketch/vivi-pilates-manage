@@ -85,8 +85,12 @@
     // 【修改4】：設定後台管理系統的計薪規則，補課也算 750 元
     const SALARY_RATES = {
         '雙月預約': 750,
+        '雙月預約(一堂)': 750,
+        '雙月預約(多堂)': 680,
         '單堂預約': 900,
-        '單堂補課': 750
+        '單堂補課': 750,          // 相容舊紀錄
+        '單堂補課(一堂)': 750,
+        '單堂補課(多堂)': 680
     };
 
     let currentDate = new Date();
@@ -195,8 +199,14 @@
                     }
 
                     // 判斷模式對應的標籤顏色與文字
-                    let modeLabel = s.mode === '單堂補課' ? '補課' : (s.mode === '雙月預約' ? '雙月' : '單堂');
-                    let modeClass = s.mode === '雙月預約' ? 'bimonthly' : (s.mode === '單堂補課' ? 'makeup' : '');
+                    let modeLabel = '單堂';
+                    if (s.mode === '單堂補課' || s.mode === '單堂補課(一堂)') modeLabel = '補課(一堂)';
+                    else if (s.mode === '單堂補課(多堂)') modeLabel = '補課(多堂)';
+                    else if (s.mode === '雙月預約' || s.mode === '雙月預約(一堂)') modeLabel = '雙月(一堂)';
+                    else if (s.mode === '雙月預約(多堂)') modeLabel = '雙月(多堂)';
+
+                    // 使用 includes 捕捉所有帶有"補課"的字串，套用綠色樣式
+                    let modeClass = s.mode.includes('雙月') ? 'bimonthly' : (s.mode.includes('補課') ? 'makeup' : '');
                     
                     let btnClass = s.checkedIn ? 'checkin-btn checked' : 'checkin-btn';
                     let btnText = s.checkedIn ? '已簽到' : '簽到';
