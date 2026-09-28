@@ -148,14 +148,17 @@
                     if (!groupedByDate[dateOnly]) groupedByDate[dateOnly] = {};
                     if (!groupedByDate[dateOnly][timeOnly]) groupedByDate[dateOnly][timeOnly] = [];
 
-                    const isCheckedIn = booking.checkins.includes(dateKey);
+                    const isCheckedIn = booking.checkins && booking.checkins.includes(dateKey);
+                    // 新增：讀取管理者的核銷狀態
+                    const isVerified = booking.verifies && booking.verifies.includes(dateKey); 
                     
                     groupedByDate[dateOnly][timeOnly].push({
                         uid: booking.uid,
                         name: booking.name,
                         mode: booking.mode,
                         dateKey: dateKey,
-                        checkedIn: isCheckedIn
+                        checkedIn: isCheckedIn,
+                        verified: isVerified // 將核銷狀態存入
                     });
                 }
             });
@@ -185,57 +188,76 @@
             
             sortedTimes.forEach(time => {
                 const students = groupedByDate[date][time];
-                const checkedInCount = students.filter(s => s.checkedIn).length;
                 
-                // 【修改3】：預設計算「已經簽到」的學生薪資加總
+                // 👇【新增】：判斷這堂課是 Vivian 還是 圈圈
+                const isVivian = (dObj.getDay() === 1 || dObj.getDay() === 2);
+                const teacherName = isVivian ? "Vivian老師" : "圈圈老師";
+                const teacherIcon = isVivian ? "V" : "圈";
+
                 let classEarnedSalary = 0;
                 let studentsHtml = '';
+                let validCount = 0; // 紀錄已算錢的人數
                 
                 students.forEach(s => {
                     let rate = SALARY_RATES[s.mode] || 0;
-                    if (s.checkedIn) {
+                    
+                    // 👇【修改】：Vivian看自己簽到算錢；圈圈的課看管理者核銷算錢
+                    let isValid = isVivian ? s.checkedIn : s.verified;
+                    if (isValid) {
                         classEarnedSalary += rate;
-                        currentMonthSalary += rate; // 累加到當月總薪資
+                        currentMonthSalary += rate; 
+                        validCount++;
                     }
 
-                    // 判斷模式對應的標籤顏色與文字
                     let modeLabel = '單堂';
                     if (s.mode === '單堂補課' || s.mode === '單堂補課(一堂)') modeLabel = '補課(一堂)';
                     else if (s.mode === '單堂補課(多堂)') modeLabel = '補課(多堂)';
                     else if (s.mode === '雙月預約' || s.mode === '雙月預約(一堂)') modeLabel = '雙月(一堂)';
                     else if (s.mode === '雙月預約(多堂)') modeLabel = '雙月(多堂)';
 
-                    // 使用 includes 捕捉所有帶有"補課"的字串，套用綠色樣式
                     let modeClass = s.mode.includes('雙月') ? 'bimonthly' : (s.mode.includes('補課') ? 'makeup' : '');
                     
-                    let btnClass = s.checkedIn ? 'checkin-btn checked' : 'checkin-btn';
-                    let btnText = s.checkedIn ? '已簽到' : '簽到';
+                    let btnClass = isValid ? 'checkin-btn checked' : 'checkin-btn';
+                    let btnText = '';
+                    let onClickAction = '';
+                    let teacherCheckStatus = '';
 
-                    // 綁定 onClick 傳遞 rate (該學生的單堂價值)
+                    // 👇【修改】：根據老師身分，渲染不同的按鈕與狀態標籤
+                    if (isVivian) {
+                        btnText = s.checkedIn ? '已簽到' : '簽到';
+                        onClickAction = `toggleCheckin('${s.uid}', '${s.dateKey}', this, ${rate})`;
+                        teacherCheckStatus = ''; // Vivian的課不需要顯示(老師未簽)
+                    } else {
+                        btnText = s.verified ? '已核銷' : '核銷';
+                        onClickAction = `toggleVerify('${s.uid}', '${s.dateKey}', this, ${rate})`;
+                        teacherCheckStatus = s.checkedIn ? '<span style="color:#11c258; font-size:12px; margin-left:5px;">(老師已簽)</span>' : '<span style="color:#f39c12; font-size:12px; margin-left:5px;">(老師未簽)</span>';
+                    }
+
                     studentsHtml += `
                         <div class="student-row">
                             <div class="student-name">
-                                ${s.name} <span class="student-mode ${modeClass}">${modeLabel}</span>
+                                ${s.name} <span class="student-mode ${modeClass}">${modeLabel}</span> ${teacherCheckStatus}
                             </div>
-                            <button class="${btnClass}" onclick="toggleCheckin('${s.uid}', '${s.dateKey}', this, ${rate})">${btnText}</button>
+                            <button class="${btnClass}" onclick="${onClickAction}">${btnText}</button>
                         </div>
                     `;
                 });
 
-                // 計算下課時間 (假設 55 分鐘)
                 const [hr, min] = time.split(':').map(Number);
                 const endDate = new Date(0,0,0, hr, min + 55);
                 const endTime = String(endDate.getHours()).padStart(2,'0') + ":" + String(endDate.getMinutes()).padStart(2,'0');
+                
+                const statsLabel = isVivian ? '已簽到' : '已核銷';
 
                 const classCard = document.createElement('div');
                 classCard.className = 'class-card';
                 classCard.innerHTML = `
                     <div class="class-header" onclick="toggleStudentList(this)">
                         <div class="class-info">
-                            <div class="class-icon">V</div>
+                            <div class="class-icon">${teacherIcon}</div>
                             <div>
-                                <div class="class-time">器械皮拉提斯 <span style="font-weight:normal; font-size:13px; color:#888;">${time}~${endTime}</span></div>
-                                <div class="class-stats">預約: ${students.length} 人 ｜ 已簽到: <span class="checkin-counter">${checkedInCount}</span> 人</div>
+                                <div class="class-time">${teacherName} - 器械皮拉提斯 <span style="font-weight:normal; font-size:13px; color:#888;">${time}~${endTime}</span></div>
+                                <div class="class-stats">預約: ${students.length} 人 ｜ ${statsLabel}: <span class="checkin-counter">${validCount}</span> 人</div>
                             </div>
                         </div>
                         <div class="class-salary" data-salary="${classEarnedSalary}">+ ${classEarnedSalary.toLocaleString()}</div>
@@ -255,46 +277,40 @@
 
     // 展開/收合學生名單
     function toggleStudentList(el) {
-        // 確認點擊的不是簽到按鈕本身
         if(event.target.tagName.toLowerCase() === 'button') return;
         const list = el.nextElementSibling;
         list.style.display = list.style.display === 'block' ? 'none' : 'block';
     }
 
-    // 發送簽到狀態給後端，並即時更新薪資數字
+    // ==========================================
+    // 1. 用於 Vivian 老師的「簽到」
+    // ==========================================
     async function toggleCheckin(uid, dateKey, btnElement, rate) {
-        // 阻止點擊事件冒泡，避免觸發展開/收合
         event.stopPropagation();
-
         const isCurrentlyChecked = btnElement.classList.contains('checked');
         
-        // 1. 即時變更按鈕樣式與數字邏輯
         if (isCurrentlyChecked) {
             btnElement.classList.remove('checked');
             btnElement.innerText = '簽到';
-            currentMonthSalary -= rate; // 取消簽到，扣錢
+            currentMonthSalary -= rate; 
         } else {
             btnElement.classList.add('checked');
             btnElement.innerText = '已簽到';
-            currentMonthSalary += rate; // 簽到，加錢
+            currentMonthSalary += rate; 
         }
 
-        // 2. 更新外層的人數計數器
         const counterSpan = btnElement.closest('.class-card').querySelector('.checkin-counter');
         let count = parseInt(counterSpan.innerText);
         counterSpan.innerText = isCurrentlyChecked ? (count - 1) : (count + 1);
 
-        // 3. 更新單堂課的薪資小計
         const classSalaryEl = btnElement.closest('.class-card').querySelector('.class-salary');
         let currentClassSalary = parseInt(classSalaryEl.dataset.salary || 0);
         currentClassSalary = isCurrentlyChecked ? (currentClassSalary - rate) : (currentClassSalary + rate);
         classSalaryEl.dataset.salary = currentClassSalary;
         classSalaryEl.innerText = `+ ${currentClassSalary.toLocaleString()}`;
 
-        // 4. 更新上方大綠色框的總薪資
         document.getElementById('total-salary').innerText = `$ ${currentMonthSalary.toLocaleString()}`;
 
-        // 5. 非同步通知雲端資料庫
         try {
             await fetch(API_URL, {
                 method: 'POST',
@@ -302,6 +318,45 @@
             });
         } catch (error) {
             alert("網路錯誤，簽到狀態可能未儲存成功至雲端！");
+        }
+    }
+
+    // ==========================================
+    // 2. 用於 圈圈老師 的「核銷」
+    // ==========================================
+    async function toggleVerify(uid, dateKey, btnElement, rate) {
+        event.stopPropagation();
+        const isCurrentlyChecked = btnElement.classList.contains('checked');
+        
+        if (isCurrentlyChecked) {
+            btnElement.classList.remove('checked');
+            btnElement.innerText = '核銷';
+            currentMonthSalary -= rate; 
+        } else {
+            btnElement.classList.add('checked');
+            btnElement.innerText = '已核銷';
+            currentMonthSalary += rate; 
+        }
+
+        const counterSpan = btnElement.closest('.class-card').querySelector('.checkin-counter');
+        let count = parseInt(counterSpan.innerText);
+        counterSpan.innerText = isCurrentlyChecked ? (count - 1) : (count + 1);
+
+        const classSalaryEl = btnElement.closest('.class-card').querySelector('.class-salary');
+        let currentClassSalary = parseInt(classSalaryEl.dataset.salary || 0);
+        currentClassSalary = isCurrentlyChecked ? (currentClassSalary - rate) : (currentClassSalary + rate);
+        classSalaryEl.dataset.salary = currentClassSalary;
+        classSalaryEl.innerText = `+ ${currentClassSalary.toLocaleString()}`;
+
+        document.getElementById('total-salary').innerText = `$ ${currentMonthSalary.toLocaleString()}`;
+
+        try {
+            await fetch(API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'toggleVerify', uid: uid, dateKey: dateKey })
+            });
+        } catch (error) {
+            alert("網路錯誤，核銷狀態可能未儲存成功至雲端！");
         }
     }
 </script>
